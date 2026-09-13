@@ -174,3 +174,26 @@ func TestPosterViewFillsTheWindow(t *testing.T) {
 		t.Error("esc should close the poster")
 	}
 }
+
+func TestArrowsStepThroughRatingsByValue(t *testing.T) {
+	cfg := Config{Scan: scan.Config{Stars: []letterboxd.Rating{10, 8, 9}, MinShared: 2}}
+	var model tea.Model = New(context.Background(), cfg)
+	if r := model.(Model).rating(); r != 10 {
+		t.Fatalf("starts at %s, want the highest rating", r)
+	}
+	steps := []struct {
+		key  rune
+		want letterboxd.Rating
+	}{
+		{tea.KeyLeft, 9},
+		{tea.KeyLeft, 8},
+		{tea.KeyLeft, 8}, // stays at the lowest
+		{tea.KeyRight, 9},
+	}
+	for i, step := range steps {
+		model = update(model, tea.KeyPressMsg{Code: step.key})
+		if r := model.(Model).rating(); r != step.want {
+			t.Errorf("after key %d, rating is %s, want %s", i+1, r, step.want)
+		}
+	}
+}

@@ -26,7 +26,6 @@ var (
 	barStyle      = lipgloss.NewStyle().Foreground(green)
 	selectedBar   = lipgloss.NewStyle().Foreground(orange)
 	countStyle    = lipgloss.NewStyle().Bold(true).Foreground(text)
-	posterBorder  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(muted)
 	dividerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#2C3440"))
 	keyStyle      = lipgloss.NewStyle().Foreground(text)
 	helpTextStyle = lipgloss.NewStyle().Foreground(muted)

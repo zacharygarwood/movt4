@@ -49,7 +49,8 @@ type Model struct {
 	retryAt   time.Time // when a blocked request is retried; zero when not blocked
 
 	// Chart controls.
-	star          int // index into cfg.Scan.Stars
+	stars         []letterboxd.Rating // the scanned ratings, lowest first, for ←/→
+	star          int                 // index into stars
 	minShared     int
 	hideFavorites bool // leave the Top 4 out of the chart
 	posterOpen    bool // show the selected film's poster in the whole window
@@ -94,10 +95,13 @@ type (
 // New returns a model that starts the scan when the program runs. Cancelling
 // ctx stops the scan.
 func New(ctx context.Context, cfg Config) Model {
+	stars := slices.Sorted(slices.Values(cfg.Scan.Stars))
 	return Model{
 		ctx:       ctx,
 		cfg:       cfg,
 		start:     time.Now(),
+		stars:     stars,
+		star:      len(stars) - 1, // start with the highest rating
 		minShared: cfg.Scan.MinShared,
 		posters:   map[string]poster{},
 		art:       &posterArt{},
@@ -200,7 +204,7 @@ func (m Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.star, m.selected = m.star-1, 0
 		}
 	case "right", "l":
-		if m.star < len(m.cfg.Scan.Stars)-1 {
+		if m.star < len(m.stars)-1 {
 			m.star, m.selected = m.star+1, 0
 		}
 	case "tab":
@@ -229,7 +233,7 @@ func (m Model) topShared() int {
 }
 
 func (m Model) rating() letterboxd.Rating {
-	return m.cfg.Scan.Stars[m.star]
+	return m.stars[m.star]
 }
 
 // tally is the chart's data: the selected rating and tier, without the Top 4

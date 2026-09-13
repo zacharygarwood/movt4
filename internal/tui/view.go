@@ -209,14 +209,14 @@ func (m Model) posterPanel(width, height int) string {
 	if m.cfg.Poster == nil || !ok {
 		return ""
 	}
-	// The border takes two columns and two rows, and the caption one row.
-	width, height = posterSize(min(width/2, width-minPageWidth-posterGap)-2, height-3)
+	// The caption takes a row below the poster.
+	width, height = posterSize(min(width/2, width-minPageWidth-posterGap), height-1)
 	if height < minPosterHeight {
 		return ""
 	}
 
-	caption := boldStyle.Width(width + 2).Align(lipgloss.Center).Render(ansi.Truncate(film.Title, width+2, "…"))
-	return posterBorder.Render(m.drawPoster(film, width, height)) + "\n" + caption
+	caption := boldStyle.Width(width).Align(lipgloss.Center).Render(ansi.Truncate(film.Title, width, "…"))
+	return m.drawPoster(film, width, height) + "\n" + caption
 }
 
 // posterView fills the window with the selected film's poster, for a closer
