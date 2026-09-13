@@ -25,7 +25,7 @@ func (m Model) render() string {
 		return ""
 	}
 	width, height := m.width-4, m.height-2 // inside the page padding
-	top := lipgloss.JoinVertical(lipgloss.Left, m.header(width), "", m.steps(), "", dividerStyle.Render(strings.Repeat("─", width)), "")
+	top := lipgloss.JoinVertical(lipgloss.Left, m.header(width), "", m.steps(width), "", dividerStyle.Render(strings.Repeat("─", width)), "")
 	footer := m.footer()
 	chart := m.chart(width, height-lipgloss.Height(top)-lipgloss.Height(footer)-1)
 	page := lipgloss.JoinVertical(lipgloss.Left, top, chart, "", footer)
@@ -45,7 +45,10 @@ func (m Model) header(width int) string {
 	return logo + "  " + mutedStyle.Render(ansi.Truncate(subtitle, width-lipgloss.Width(logo)-2, "…"))
 }
 
-func (m Model) steps() string {
+// stepLabelWidth is the column where step details start.
+const stepLabelWidth = 36
+
+func (m Model) steps(width int) string {
 	favorites := "Read your Top 4"
 	if m.cfg.Scan.Username != "" {
 		favorites = "Read " + m.cfg.Scan.Username + "'s Top 4"
@@ -54,10 +57,10 @@ func (m Model) steps() string {
 		m.step(scan.StageConnect, "Start Chromium", ""),
 		m.step(scan.StageFavorites, favorites, ""),
 		m.step(scan.StageSearch, "Find people who share your taste", m.searchDetail()),
-		m.step(scan.StageRatings, "Fetch their ratings", m.ratingsDetail()),
+		m.step(scan.StageRatings, "Fetch their ratings", m.ratingsDetail(width-stepLabelWidth-2)),
 	}
 	if m.err != nil {
-		lines = append(lines, "  "+errorStyle.Render(m.err.Error()))
+		lines = append(lines, "  "+errorStyle.Width(width-2).Render(m.err.Error()))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -72,7 +75,7 @@ func (m Model) step(stage scan.Stage, label, detail string) string {
 	case stage == m.stage && !m.done:
 		icon, style = m.spinner.View(), boldStyle
 	}
-	return icon + " " + style.Width(36).Render(label) + detail
+	return icon + " " + style.Width(stepLabelWidth).Render(ansi.Truncate(label, stepLabelWidth-1, "…")) + detail
 }
 
 func (m Model) totalMatches() int {
@@ -98,12 +101,16 @@ func (m Model) searchDetail() string {
 	return detail
 }
 
-func (m Model) ratingsDetail() string {
+// ratingsDetail fits the progress bar into space columns, leaving room for
+// the counts after it.
+func (m Model) ratingsDetail(space int) string {
 	if m.stage < scan.StageRatings {
 		return ""
 	}
 	processed, total := m.scanned+m.failed, m.totalMatches()
-	detail := m.progress.ViewAs(float64(processed)/float64(max(total, 1))) +
+	bar := m.progress
+	bar.SetWidth(min(28, max(8, space-14)))
+	detail := bar.ViewAs(float64(processed)/float64(max(total, 1))) +
 		countStyle.Render(fmt.Sprintf("  %d", processed)) + mutedStyle.Render(fmt.Sprintf("/%d", total))
 	if m.failed > 0 {
 		detail += mutedStyle.Render(fmt.Sprintf(" · %d skipped", m.failed))
