@@ -65,8 +65,8 @@ func TestLiveClient(t *testing.T) {
 			break
 		}
 	}
-	if len(seen) < 30 {
-		t.Errorf("two search pages found %d members, want at least 30", len(seen))
+	if len(seen) <= 20 { // one page holds 20
+		t.Errorf("two search pages found %d members, want more than one page's worth", len(seen))
 	}
 
 	films, err := client.RatedFilms(ctx, "dave", 10)
