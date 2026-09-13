@@ -2,17 +2,14 @@
 
 Find Letterboxd members who share your Top 4 favorite films, then see what
 they loved. movt4 searches for people whose favorites overlap yours by 2, 3 or
-all 4 films, reads their ratings, and charts the films they rated most, live
-in your terminal.
+all 4 films, reads their ratings, and charts the films they rated most.
 
 ![movt4 charting the films rated five stars by people who share a Top 4](docs/demo.gif)
 
 ## Requirements
 
 - Go 1.26+
-- Chromium or Google Chrome. Letterboxd puts member search and rating pages
-  behind a Cloudflare challenge, so movt4 fetches those through a headless
-  browser. Everything else uses plain HTTP.
+- Chromium or Google Chrome.
 
 ## Install
 
