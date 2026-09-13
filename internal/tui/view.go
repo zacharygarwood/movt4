@@ -129,7 +129,30 @@ func (m Model) chart(width, height int) string {
 		}
 		return header + "\n\n" + mutedStyle.Render(empty)
 	}
-	return header + "\n\n" + m.bars(tally, width, rows)
+
+	panelWidth := posterWidth + 2 // plus the border
+	if m.cfg.Poster == nil || width < 90 || rows < posterHeight+2 {
+		return header + "\n\n" + m.bars(tally, width, rows)
+	}
+	bars := m.bars(tally, width-panelWidth-3, rows)
+	return header + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, bars, "   ", m.posterPanel())
+}
+
+func (m Model) posterPanel() string {
+	film, _ := m.selectedFilm()
+	p, requested := m.posters[film.Slug]
+	art := p.art
+	if art == "" {
+		message := "Loading poster…"
+		if p.failed {
+			message = "No poster"
+		} else if !requested {
+			message = ""
+		}
+		art = mutedStyle.Width(posterWidth).Height(posterHeight).
+			Align(lipgloss.Center, lipgloss.Center).Render(message)
+	}
+	return posterBorder.Render(art)
 }
 
 // bars renders one row per film, scrolled to keep the selection visible.

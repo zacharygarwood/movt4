@@ -4,6 +4,7 @@ package tui
 
 import (
 	"context"
+	"image"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
@@ -15,10 +16,15 @@ import (
 	"github.com/zacharygarwood/movt4/internal/scan"
 )
 
+// posterDelay is how long a selection must stay put before its poster is
+// fetched, so scrolling through the chart doesn't download every poster.
+const posterDelay = 300 * time.Millisecond
+
 // Config is what the UI needs to run a scan.
 type Config struct {
-	Scan scan.Config
-	Dial scan.Dialer
+	Scan   scan.Config
+	Dial   scan.Dialer
+	Poster func(ctx context.Context, slug string) (image.Image, error) // optional
 }
 
 // Model is the Bubble Tea model for a scan.
@@ -43,16 +49,28 @@ type Model struct {
 	star      int // index into cfg.Scan.Stars
 	minShared int
 	selected  int
-	notice    string // result of the last export
+	notice    string            // result of the last export
+	posters   map[string]poster // by film slug, once requested
 
 	width, height int
 	spinner       spinner.Model
 	progress      progress.Model
 }
 
+type poster struct {
+	art    string // rendered half blocks; empty while loading
+	failed bool
+}
+
 type (
-	startedMsg  struct{ events <-chan scan.Event }
-	eventMsg    struct{ event scan.Event }
+	startedMsg   struct{ events <-chan scan.Event }
+	eventMsg     struct{ event scan.Event }
+	posterDueMsg struct{ slug string }
+	posterMsg    struct {
+		slug string
+		art  string
+		err  error
+	}
 	exportedMsg struct {
 		jsonPath, csvPath string
 		err               error
@@ -67,6 +85,7 @@ func New(ctx context.Context, cfg Config) Model {
 		cfg:       cfg,
 		start:     time.Now(),
 		minShared: cfg.Scan.MinShared,
+		posters:   map[string]poster{},
 		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(activeStyle)),
 		progress:  progress.New(progress.WithColors(orange, green), progress.WithoutPercentage(), progress.WithWidth(28)),
 	}
@@ -95,7 +114,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForEvent(m.events)
 	case eventMsg:
 		m.apply(msg.event)
-		return m, waitForEvent(m.events)
+		return m, tea.Batch(waitForEvent(m.events), m.schedulePoster())
+	case posterDueMsg:
+		if film, ok := m.selectedFilm(); ok && film.Slug == msg.slug {
+			if _, requested := m.posters[msg.slug]; !requested {
+				m.posters[msg.slug] = poster{}
+				return m, m.loadPoster(msg.slug)
+			}
+		}
+	case posterMsg:
+		m.posters[msg.slug] = poster{art: msg.art, failed: msg.err != nil}
 	case exportedMsg:
 		if msg.err != nil {
 			m.notice = errorStyle.Render("Export failed: " + msg.err.Error())
@@ -158,7 +186,7 @@ func (m Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "e":
 		return m, m.export()
 	}
-	return m, nil
+	return m, m.schedulePoster()
 }
 
 // topShared is the most favorites a member can share with the Top 4.
@@ -175,6 +203,34 @@ func (m Model) rating() letterboxd.Rating {
 
 func (m Model) tally() []scan.FilmCount {
 	return m.results.Tally(m.rating(), m.minShared)
+}
+
+func (m Model) selectedFilm() (letterboxd.Film, bool) {
+	tally := m.tally()
+	if len(tally) == 0 {
+		return letterboxd.Film{}, false
+	}
+	return tally[min(m.selected, len(tally)-1)].Film, true
+}
+
+// schedulePoster asks for the selected film's poster after posterDelay,
+// unless it has already been requested.
+func (m Model) schedulePoster() tea.Cmd {
+	film, ok := m.selectedFilm()
+	if _, requested := m.posters[film.Slug]; !ok || requested || m.cfg.Poster == nil {
+		return nil
+	}
+	return tea.Tick(posterDelay, func(time.Time) tea.Msg { return posterDueMsg{film.Slug} })
+}
+
+func (m Model) loadPoster(slug string) tea.Cmd {
+	return func() tea.Msg {
+		img, err := m.cfg.Poster(m.ctx, slug)
+		if err != nil {
+			return posterMsg{slug: slug, err: err}
+		}
+		return posterMsg{slug: slug, art: renderPoster(img, posterWidth, posterHeight)}
+	}
 }
 
 // export writes whatever has been scanned so far, so partial results can be
