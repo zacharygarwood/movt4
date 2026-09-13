@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 
 	"github.com/zacharygarwood/movt4/internal/letterboxd"
@@ -20,7 +21,7 @@ const maxBlockedInARow = 3
 type Source interface {
 	Favorites(ctx context.Context, username string) ([]letterboxd.Film, error)
 	SearchFans(ctx context.Context, slugs []string, minShared int) iter.Seq2[[]string, error]
-	RatedFilms(ctx context.Context, username string, r letterboxd.Rating) ([]letterboxd.Film, error)
+	RatedFilms(ctx context.Context, username string, from, to letterboxd.Rating) (map[letterboxd.Rating][]letterboxd.Film, error)
 }
 
 // Dialer connects to a Source. Starting the browser is slow enough to be
@@ -175,14 +176,17 @@ func (s *scanner) findMatches(src Source, films []letterboxd.Film) ([]match, err
 	return matches, nil
 }
 
+// fetchRatings asks for one range spanning every configured rating, which
+// takes far fewer requests than asking for each, then keeps only the
+// configured ratings from it.
 func (s *scanner) fetchRatings(src Source, m match) (User, error) {
+	rated, err := src.RatedFilms(s.ctx, m.username, slices.Min(s.cfg.Stars), slices.Max(s.cfg.Stars))
+	if err != nil {
+		return User{}, err
+	}
 	user := User{Username: m.username, Shared: m.shared, Ratings: map[letterboxd.Rating][]letterboxd.Film{}}
 	for _, r := range s.cfg.Stars {
-		films, err := src.RatedFilms(s.ctx, m.username, r)
-		if err != nil {
-			return User{}, err
-		}
-		user.Ratings[r] = films
+		user.Ratings[r] = rated[r]
 	}
 	return user, nil
 }

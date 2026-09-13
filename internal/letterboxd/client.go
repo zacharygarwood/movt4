@@ -62,10 +62,16 @@ func (c *Client) SearchFans(ctx context.Context, slugs []string, minShared int) 
 	}
 }
 
-// RatedFilms returns every film a member gave exactly the rating r.
-func (c *Client) RatedFilms(ctx context.Context, username string, r Rating) ([]Film, error) {
-	var films []Film
-	path := "/" + url.PathEscape(username) + "/films/rated/" + r.Stars() + "/"
+// RatedFilms returns the films a member rated from `from` to `to` stars,
+// grouped by rating. A range costs one request per 72 films however many
+// ratings it spans, so it's much cheaper than asking for each rating.
+func (c *Client) RatedFilms(ctx context.Context, username string, from, to Rating) (map[Rating][]Film, error) {
+	stars := from.Stars()
+	if to != from {
+		stars += "-" + to.Stars()
+	}
+	films := map[Rating][]Film{}
+	path := "/" + url.PathEscape(username) + "/films/rated/" + stars + "/"
 	for path != "" {
 		body, err := c.guarded.Get(ctx, baseURL+path)
 		if err != nil {
@@ -75,7 +81,9 @@ func (c *Client) RatedFilms(ctx context.Context, username string, r Rating) ([]F
 		if err != nil {
 			return nil, err
 		}
-		films = append(films, page.Films...)
+		for rating, rated := range page.Films {
+			films[rating] = append(films[rating], rated...)
+		}
 		path = page.NextPath
 	}
 	return films, nil

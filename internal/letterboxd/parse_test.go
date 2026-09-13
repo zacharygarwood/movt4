@@ -50,8 +50,8 @@ func TestParseRatedPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Films) != 5 || page.Films[0] != (Film{"poor-things-2023", "Poor Things (2023)"}) {
-		t.Errorf("got %v", page.Films)
+	if films := page.Films[10]; len(page.Films) != 1 || len(films) != 5 || films[0] != (Film{"poor-things-2023", "Poor Things (2023)"}) {
+		t.Errorf("got %v, want 5 five-star films starting with Poor Things", page.Films)
 	}
 	if page.NextPath != "/dave/films/rated/5/page/2/" {
 		t.Errorf("next = %q", page.NextPath)
@@ -59,12 +59,12 @@ func TestParseRatedPage(t *testing.T) {
 }
 
 func TestParseRatedPageLast(t *testing.T) {
-	page, err := parseRatedPage(`<ul><li class="griditem"><div data-item-slug="x" data-item-name="X"></div></li></ul>`)
+	page, err := parseRatedPage(`<ul><li class="griditem"><div data-item-slug="x" data-item-name="X"></div><p><span class="rating -micro rated-9">★★★★½</span></p></li></ul>`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Films) != 1 || page.NextPath != "" {
-		t.Errorf("got %+v, want one film and no next page", page)
+	if want := []Film{{"x", "X"}}; !reflect.DeepEqual(page.Films[9], want) || page.NextPath != "" {
+		t.Errorf("got %+v, want X rated ★★★★½ and no next page", page)
 	}
 }
 

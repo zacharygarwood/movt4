@@ -3,6 +3,8 @@ package letterboxd
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -22,9 +24,12 @@ type searchPage struct {
 
 // ratedPage is one page of a member's films filtered by rating.
 type ratedPage struct {
-	Films    []Film
-	NextPath string // e.g. "/dave/films/rated/5/page/2/"; empty on the last page
+	Films    map[Rating][]Film
+	NextPath string // e.g. "/dave/films/rated/4-5/page/2/"; empty on the last page
 }
+
+// ratedClass is the class that carries a film's rating, e.g. "rated-9" for ★★★★½.
+var ratedClass = regexp.MustCompile(`\brated-(\d+)\b`)
 
 // parseFavorites extracts the Top 4 from a member's profile page.
 func parseFavorites(html string) ([]Film, error) {
@@ -51,16 +56,28 @@ func parseSearchPage(html string) (searchPage, error) {
 	return page, nil
 }
 
-// parseRatedPage extracts films from a /<user>/films/rated/<stars>/ page.
+// parseRatedPage extracts films, grouped by rating, from a
+// /<user>/films/rated/<stars>/ page.
 func parseRatedPage(html string) (ratedPage, error) {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return ratedPage{}, err
 	}
-	return ratedPage{
-		Films:    filmsIn(doc.Find("li.griditem [data-item-slug]")),
+	page := ratedPage{
+		Films:    map[Rating][]Film{},
 		NextPath: doc.Find(".pagination a.next").AttrOr("href", ""),
-	}, nil
+	}
+	doc.Find("li.griditem").Each(func(_ int, item *goquery.Selection) {
+		poster := item.Find("[data-item-slug]").First()
+		match := ratedClass.FindStringSubmatch(item.Find(".rating").AttrOr("class", ""))
+		if poster.Length() == 0 || match == nil {
+			return
+		}
+		stars, _ := strconv.Atoi(match[1])
+		film := Film{Slug: poster.AttrOr("data-item-slug", ""), Title: poster.AttrOr("data-item-name", "")}
+		page.Films[Rating(stars)] = append(page.Films[Rating(stars)], film)
+	})
+	return page, nil
 }
 
 // parsePosterURL reads the poster image URL from a film page's JSON-LD.

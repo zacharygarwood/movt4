@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"reflect"
 	"testing"
@@ -39,12 +40,13 @@ func (f fakeSource) SearchFans(_ context.Context, _ []string, minShared int) ite
 	}
 }
 
-func (f fakeSource) RatedFilms(_ context.Context, username string, _ letterboxd.Rating) ([]letterboxd.Film, error) {
+// RatedFilms files each member's films under the lowest rating asked for.
+func (f fakeSource) RatedFilms(_ context.Context, username string, from, _ letterboxd.Rating) (map[letterboxd.Rating][]letterboxd.Film, error) {
 	films, ok := f.rated[username]
 	if !ok {
 		return nil, errors.New("not found")
 	}
-	return films, nil
+	return map[letterboxd.Rating][]letterboxd.Film{from: films}, nil
 }
 
 func collect(t *testing.T, cfg Config, src Source) (Results, []string, Finished) {
@@ -143,7 +145,7 @@ type blockedSource struct {
 	allowed map[string]bool
 }
 
-func (s blockedSource) RatedFilms(_ context.Context, username string, _ letterboxd.Rating) ([]letterboxd.Film, error) {
+func (s blockedSource) RatedFilms(_ context.Context, username string, _, _ letterboxd.Rating) (map[letterboxd.Rating][]letterboxd.Film, error) {
 	if s.allowed[username] {
 		return nil, nil
 	}
@@ -161,5 +163,30 @@ func TestRunFinishesEarlyWhenBlockedRepeatedly(t *testing.T) {
 	// b resets the count, so c, d and e are three blocks in a row and f is never tried.
 	if done.Err != nil || len(results.Users) != 1 || !reflect.DeepEqual(failed, []string{"a", "c", "d", "e"}) || done.Unscanned != 1 {
 		t.Errorf("got %d users, failed %v, %+v", len(results.Users), failed, done)
+	}
+}
+
+// rangedSource checks that ratings are requested as one range from 4 to 5 stars.
+type rangedSource struct{ fakeSource }
+
+func (rangedSource) RatedFilms(_ context.Context, _ string, from, to letterboxd.Rating) (map[letterboxd.Rating][]letterboxd.Film, error) {
+	if from != 8 || to != 10 {
+		return nil, fmt.Errorf("asked for ratings %d-%d, want 8-10", from, to)
+	}
+	return map[letterboxd.Rating][]letterboxd.Film{8: {parasite}, 9: {whiplash}, 10: {parasite}}, nil
+}
+
+func TestRunFetchesRatingsAsOneRange(t *testing.T) {
+	src := rangedSource{fakeSource{search: map[int][][]string{4: {{"ana"}}}}}
+	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10, 8}, MinShared: 4}
+
+	results, failed, done := collect(t, cfg, src)
+	if done.Err != nil || len(failed) != 0 || len(results.Users) != 1 {
+		t.Fatalf("got %d users, failed %v, %+v", len(results.Users), failed, done)
+	}
+	// ★★★★½ falls inside the range but wasn't asked for.
+	want := map[letterboxd.Rating][]letterboxd.Film{10: {parasite}, 8: {parasite}}
+	if got := results.Users[0].Ratings; !reflect.DeepEqual(got, want) {
+		t.Errorf("ratings = %v, want %v", got, want)
 	}
 }
