@@ -15,6 +15,10 @@ import (
 // challengeTitle is the page title Cloudflare shows while its challenge runs.
 const challengeTitle = "Just a moment..."
 
+// errBlocked means Cloudflare still refused requests after its challenge,
+// which happens for a while after many requests in a short time.
+var errBlocked = errors.New("Letterboxd's Cloudflare protection is blocking this network for now; wait a few minutes and try again")
+
 // BrowserFetcher fetches Cloudflare-guarded pages through a headless Chromium
 // tab. The first guarded request navigates the tab so the challenge can run
 // and set its clearance cookie; every request is then made with fetch() from
@@ -66,7 +70,9 @@ func (b *BrowserFetcher) Get(ctx context.Context, url string) (string, error) {
 		if err := b.solveChallenge(url); err != nil {
 			return "", err
 		}
-		status, body, err = b.fetchInPage(url)
+		if status, body, err = b.fetchInPage(url); err == nil && status == 403 {
+			return "", errBlocked
+		}
 	}
 	if err != nil {
 		return "", err
@@ -94,18 +100,24 @@ func (b *BrowserFetcher) fetchInPage(url string) (int, string, error) {
 // solveChallenge loads url in the tab and waits for Cloudflare's challenge
 // page to hand over to the real page.
 func (b *BrowserFetcher) solveChallenge(url string) error {
-	deadline := time.Now().Add(45 * time.Second)
-	if err := b.run(45*time.Second, chromedp.Navigate(url)); err != nil {
+	// Navigate without waiting for a load event, which a challenge page may
+	// never fire. The mark set on the current document disappears with it,
+	// which tells the old page apart from the one being waited for.
+	quoted, _ := json.Marshal(url)
+	navigate := fmt.Sprintf(`window.movt4Stale = true; location.href = %s`, quoted)
+	if err := b.run(10*time.Second, chromedp.Evaluate(navigate, nil)); err != nil {
 		return fmt.Errorf("loading %s: %w", url, err)
 	}
-	for time.Now().Before(deadline) {
-		var title string
-		if err := b.run(5*time.Second, chromedp.Title(&title)); err == nil && title != challengeTitle {
+
+	cleared := fmt.Sprintf(`!window.movt4Stale && document.readyState !== "loading" && document.title !== %q`, challengeTitle)
+	for deadline := time.Now().Add(45 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		var ok bool
+		// Errors are expected while the page is mid-navigation; keep polling.
+		if err := b.run(5*time.Second, chromedp.Evaluate(cleared, &ok)); err == nil && ok {
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
-	return errors.New("timed out waiting for the Cloudflare challenge")
+	return errBlocked
 }
 
 func (b *BrowserFetcher) run(timeout time.Duration, actions ...chromedp.Action) error {
