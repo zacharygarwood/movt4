@@ -143,3 +143,34 @@ func TestBarOf(t *testing.T) {
 		}
 	}
 }
+
+func TestPosterViewFillsTheWindow(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 60, 90))
+	cfg := Config{
+		Scan:   scan.Config{Stars: []letterboxd.Rating{10}, MinShared: 2},
+		Poster: func(context.Context, string) (image.Image, error) { return img, nil },
+	}
+	model := update(New(context.Background(), cfg),
+		tea.WindowSizeMsg{Width: 100, Height: 40},
+		eventMsg{scan.UserScanned{User: scan.User{Username: "ana", Shared: 2, Ratings: map[letterboxd.Rating][]letterboxd.Film{10: {interstellar}}}}},
+		posterMsg{slug: interstellar.Slug, img: img},
+		tea.KeyPressMsg{Code: tea.KeyEnter},
+	)
+
+	got := screen(model)
+	if strings.Contains(got, "Fetch their ratings") || !strings.Contains(got, interstellar.Title) {
+		t.Errorf("enter should show only the poster and its title:\n%s", got)
+	}
+	if lines := strings.Count(model.View().Content, "\n") + 1; lines > 40 {
+		t.Errorf("poster view is %d lines, taller than the window", lines)
+	}
+	// 40 rows, less the page padding and a row each for the title and help.
+	if h := model.(Model).art.height; h != 36 {
+		t.Errorf("poster is %d rows, want 36", h)
+	}
+
+	model = update(model, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if !strings.Contains(screen(model), "Fetch their ratings") {
+		t.Error("esc should close the poster")
+	}
+}

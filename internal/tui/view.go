@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"image"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/zacharygarwood/movt4/internal/letterboxd"
 	"github.com/zacharygarwood/movt4/internal/scan"
 )
 
@@ -33,6 +33,9 @@ func (m Model) render() string {
 		return ""
 	}
 	width, height := m.width-4, m.height-2 // inside the page padding
+	if m.posterOpen {
+		return lipgloss.NewStyle().Padding(1, 2).Render(m.posterView(width, height))
+	}
 	panel := m.posterPanel(width, height)
 	if panel != "" {
 		width -= lipgloss.Width(panel) + posterGap
@@ -212,11 +215,32 @@ func (m Model) posterPanel(width, height int) string {
 		return ""
 	}
 
+	caption := boldStyle.Width(width + 2).Align(lipgloss.Center).Render(ansi.Truncate(film.Title, width+2, "…"))
+	return posterBorder.Render(m.drawPoster(film, width, height)) + "\n" + caption
+}
+
+// posterView fills the window with the selected film's poster, for a closer
+// look than the panel beside the chart allows.
+func (m Model) posterView(width, height int) string {
+	film, _ := m.selectedFilm()
+	// The title and the key help take a row each below the poster.
+	posterWidth, posterHeight := posterSize(width, height-2)
+	help := keyStyle.Render("↑/↓") + " " + helpTextStyle.Render("other films") + helpTextStyle.Render("  ·  ") +
+		keyStyle.Render("enter") + " " + helpTextStyle.Render("back")
+	view := lipgloss.JoinVertical(lipgloss.Center,
+		m.drawPoster(film, posterWidth, posterHeight),
+		boldStyle.Render(ansi.Truncate(film.Title, width, "…")),
+		ansi.Truncate(help, width, "…"),
+	)
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, view)
+}
+
+// drawPoster renders a film's poster at width×height cells, or a placeholder
+// until it has loaded. The last rendering is reused while the film and size
+// stay the same, since View runs on every frame.
+func (m Model) drawPoster(film letterboxd.Film, width, height int) string {
 	p, requested := m.posters[film.Slug]
-	var art string
-	if p.img != nil {
-		art = m.drawPoster(film.Slug, p.img, width, height)
-	} else {
+	if p.img == nil {
 		message := ""
 		switch {
 		case p.failed:
@@ -224,17 +248,10 @@ func (m Model) posterPanel(width, height int) string {
 		case requested:
 			message = "Loading poster…"
 		}
-		art = mutedStyle.Width(width).Height(height).Align(lipgloss.Center, lipgloss.Center).Render(message)
+		return mutedStyle.Width(width).Height(height).Align(lipgloss.Center, lipgloss.Center).Render(message)
 	}
-	caption := boldStyle.Width(width + 2).Align(lipgloss.Center).Render(ansi.Truncate(film.Title, width+2, "…"))
-	return posterBorder.Render(art) + "\n" + caption
-}
-
-// drawPoster renders a poster, reusing the last rendering when the poster and
-// its size haven't changed.
-func (m Model) drawPoster(slug string, img image.Image, width, height int) string {
-	if a := m.art; a.slug != slug || a.width != width || a.height != height {
-		*a = posterArt{slug: slug, width: width, height: height, text: renderPoster(img, width, height)}
+	if a := m.art; a.slug != film.Slug || a.width != width || a.height != height {
+		*a = posterArt{slug: film.Slug, width: width, height: height, text: renderPoster(p.img, width, height)}
 	}
 	return m.art.text
 }
@@ -244,7 +261,11 @@ func (m Model) footer(width int) string {
 	if m.hideFavorites {
 		top4 = "show top 4"
 	}
-	keys := [][2]string{{"←/→", "rating"}, {"tab", "shared"}, {"f", top4}, {"↑/↓", "select"}, {"e", "export"}, {"q", "quit"}}
+	keys := [][2]string{{"←/→", "rating"}, {"tab", "shared"}, {"f", top4}, {"↑/↓", "select"}}
+	if m.cfg.Poster != nil {
+		keys = append(keys, [2]string{"enter", "poster"})
+	}
+	keys = append(keys, [2]string{"e", "export"}, [2]string{"q", "quit"})
 	var help []string
 	for _, k := range keys {
 		help = append(help, keyStyle.Render(k[0])+" "+helpTextStyle.Render(k[1]))

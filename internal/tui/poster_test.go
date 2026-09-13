@@ -57,3 +57,14 @@ func TestPosterSize(t *testing.T) {
 		}
 	}
 }
+
+func TestSharpenIncreasesEdgeContrast(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 4, 1))
+	for x, v := range []uint8{80, 80, 160, 160} {
+		img.SetRGBA(x, 0, color.RGBA{v, v, v, 255})
+	}
+	sharp := sharpen(img)
+	if dark, light := sharp.RGBAAt(1, 0).R, sharp.RGBAAt(2, 0).R; dark >= 80 || light <= 160 {
+		t.Errorf("edge is %d|%d, want darker than 80 beside lighter than 160", dark, light)
+	}
+}

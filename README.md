@@ -51,6 +51,7 @@ blocked members in a row it finishes with the results it has. A longer
 | tab   | Cycle the minimum number of shared films  |
 | f     | Hide or show your Top 4 films             |
 | ↑ / ↓ | Select a film and show its poster         |
+| enter | Show the selected poster full size        |
 | e     | Export results to JSON and CSV            |
 | q     | Quit                                      |
 

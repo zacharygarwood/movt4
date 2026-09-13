@@ -52,6 +52,7 @@ type Model struct {
 	star          int // index into cfg.Scan.Stars
 	minShared     int
 	hideFavorites bool // leave the Top 4 out of the chart
+	posterOpen    bool // show the selected film's poster in the whole window
 	selected      int
 	notice        string            // result of the last export
 	posters       map[string]poster // by film slug, once requested
@@ -183,8 +184,17 @@ func (m *Model) apply(e scan.Event) {
 
 func (m Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
-	case "q", "esc", "ctrl+c":
+	case "q", "ctrl+c":
 		return m, tea.Quit
+	case "esc":
+		if !m.posterOpen {
+			return m, tea.Quit
+		}
+		m.posterOpen = false
+	case "enter":
+		if _, ok := m.selectedFilm(); ok && m.cfg.Poster != nil {
+			m.posterOpen = !m.posterOpen
+		}
 	case "left", "h":
 		if m.star > 0 {
 			m.star, m.selected = m.star-1, 0

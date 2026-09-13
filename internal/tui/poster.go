@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"strings"
 
 	"golang.org/x/image/draw"
@@ -11,6 +12,10 @@ import (
 
 // minPosterHeight is the smallest poster, in rows, worth showing.
 const minPosterHeight = 12
+
+// sharpenAmount is the strength of the unsharp mask applied to a poster once
+// it's shrunk to a few dozen cells, which blurs its edges and lettering.
+const sharpenAmount = 0.7
 
 // quadrants holds the block character for each combination of a cell's four
 // quarters drawn in the foreground color: bit 0 is top left, 1 top right,
@@ -27,10 +32,11 @@ func posterSize(maxWidth, maxHeight int) (width, height int) {
 
 // renderPoster draws img with quadrant blocks in truecolor. Each cell shows
 // 2×2 pixels in the two colors that fit them best, which gives twice the
-// detail of half blocks without needing an image protocol.
+// detail of half blocks and works in any terminal, image protocol or not.
 func renderPoster(img image.Image, width, height int) string {
 	pixels := image.NewRGBA(image.Rect(0, 0, width*2, height*2))
 	draw.CatmullRom.Scale(pixels, pixels.Bounds(), img, img.Bounds(), draw.Src, nil)
+	pixels = sharpen(pixels)
 
 	var b strings.Builder
 	for y := 0; y < height; y++ {
@@ -91,4 +97,33 @@ func splitColors(cell [4]color.RGBA) (mask int, fg, bg color.RGBA) {
 		}
 	}
 	return mask, fg, bg
+}
+
+// sharpen applies an unsharp mask: each pixel moves away from the average of
+// its 3×3 neighborhood, restoring contrast that shrinking took from edges.
+func sharpen(src *image.RGBA) *image.RGBA {
+	bounds := src.Bounds()
+	out := image.NewRGBA(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			var sum [3]int
+			n := 0
+			for ny := max(y-1, bounds.Min.Y); ny <= min(y+1, bounds.Max.Y-1); ny++ {
+				for nx := max(x-1, bounds.Min.X); nx <= min(x+1, bounds.Max.X-1); nx++ {
+					c := src.RGBAAt(nx, ny)
+					sum[0] += int(c.R)
+					sum[1] += int(c.G)
+					sum[2] += int(c.B)
+					n++
+				}
+			}
+			channel := func(v uint8, total int) uint8 {
+				mean := float64(total) / float64(n)
+				return uint8(max(0, min(255, math.Round(float64(v)+sharpenAmount*(float64(v)-mean)))))
+			}
+			c := src.RGBAAt(x, y)
+			out.SetRGBA(x, y, color.RGBA{channel(c.R, sum[0]), channel(c.G, sum[1]), channel(c.B, sum[2]), 255})
+		}
+	}
+	return out
 }
