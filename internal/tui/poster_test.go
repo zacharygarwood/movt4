@@ -36,3 +36,24 @@ func TestRenderPoster(t *testing.T) {
 		t.Error("want red at the top and blue at the bottom")
 	}
 }
+
+func TestSplitColors(t *testing.T) {
+	black, white := color.RGBA{A: 255}, color.RGBA{R: 255, G: 255, B: 255, A: 255}
+	mask, fg, bg := splitColors([4]color.RGBA{black, white, white, black})
+	if quadrants[mask] != '▞' || fg != white || bg != black {
+		t.Errorf("got %q in %v on %v, want ▞ in white on black", quadrants[mask], fg, bg)
+	}
+}
+
+func TestPosterSize(t *testing.T) {
+	tests := []struct{ maxWidth, maxHeight, width, height int }{
+		{40, 30, 40, 30},  // exactly fits
+		{100, 30, 40, 30}, // limited by height
+		{20, 30, 20, 15},  // limited by width
+	}
+	for _, tt := range tests {
+		if w, h := posterSize(tt.maxWidth, tt.maxHeight); w != tt.width || h != tt.height {
+			t.Errorf("posterSize(%d, %d) = %d×%d, want %d×%d", tt.maxWidth, tt.maxHeight, w, h, tt.width, tt.height)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/zacharygarwood/movt4/internal/scan"
+)
+
+// Layout, in columns.
+const (
+	stepLabelWidth = 36 // where step details start
+	posterGap      = 3  // between the page and the poster
+	minPageWidth   = 70 // left for the steps and chart beside the poster
 )
 
 func (m Model) View() tea.View {
@@ -25,10 +33,17 @@ func (m Model) render() string {
 		return ""
 	}
 	width, height := m.width-4, m.height-2 // inside the page padding
+	panel := m.posterPanel(width, height)
+	if panel != "" {
+		width -= lipgloss.Width(panel) + posterGap
+	}
 	top := lipgloss.JoinVertical(lipgloss.Left, m.header(width), "", m.steps(width), "", dividerStyle.Render(strings.Repeat("─", width)), "")
-	footer := m.footer()
+	footer := m.footer(width)
 	chart := m.chart(width, height-lipgloss.Height(top)-lipgloss.Height(footer)-1)
 	page := lipgloss.JoinVertical(lipgloss.Left, top, chart, "", footer)
+	if panel != "" {
+		page = lipgloss.JoinHorizontal(lipgloss.Top, lipgloss.NewStyle().Width(width).Render(page), strings.Repeat(" ", posterGap), panel)
+	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(page)
 }
 
@@ -45,9 +60,6 @@ func (m Model) header(width int) string {
 	return logo + "  " + mutedStyle.Render(ansi.Truncate(subtitle, width-lipgloss.Width(logo)-2, "…"))
 }
 
-// stepLabelWidth is the column where step details start.
-const stepLabelWidth = 36
-
 func (m Model) steps(width int) string {
 	favorites := "Read your Top 4"
 	if m.cfg.Scan.Username != "" {
@@ -61,7 +73,10 @@ func (m Model) steps(width int) string {
 	}
 	if !m.retryAt.IsZero() {
 		wait := max(time.Until(m.retryAt).Round(time.Second), 0)
-		lines = append(lines, "  "+activeStyle.Render("Cloudflare is blocking requests, trying again in "+wait.String()))
+		lines = append(lines, "  "+mutedStyle.Render("Letterboxd asked us to slow down · resuming in "+wait.String()))
+	}
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, width, "…")
 	}
 	if m.err != nil {
 		lines = append(lines, "  "+errorStyle.Width(width-2).Render(m.err.Error()))
@@ -119,6 +134,9 @@ func (m Model) ratingsDetail(space int) string {
 	if m.failed > 0 {
 		detail += mutedStyle.Render(fmt.Sprintf(" · %d skipped", m.failed))
 	}
+	if m.unscanned > 0 {
+		detail += mutedStyle.Render(fmt.Sprintf(" · stopped early, %d not scanned", m.unscanned))
+	}
 	if m.done && m.err == nil {
 		detail += mutedStyle.Render(" · " + m.elapsed.Round(time.Second).String())
 	}
@@ -130,6 +148,9 @@ func (m Model) chart(width, height int) string {
 	header := mutedStyle.Render("‹ ") + starStyle.Render(m.rating().String()) + mutedStyle.Render(" ›") +
 		mutedStyle.Render("   shared ≥ ") + accentStyle.Render(strconv.Itoa(m.minShared)) +
 		mutedStyle.Render(fmt.Sprintf(" of %d   %d %s", m.topShared(), people, plural(people, "person", "people")))
+	if m.hideFavorites {
+		header += mutedStyle.Render("   Top 4 hidden")
+	}
 
 	tally := m.tally()
 	rows := height - 2
@@ -140,30 +161,7 @@ func (m Model) chart(width, height int) string {
 		}
 		return header + "\n\n" + mutedStyle.Render(empty)
 	}
-
-	panelWidth := posterWidth + 2 // plus the border
-	if m.cfg.Poster == nil || width < 90 || rows < posterHeight+2 {
-		return header + "\n\n" + m.bars(tally, width, rows)
-	}
-	bars := m.bars(tally, width-panelWidth-3, rows)
-	return header + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, bars, "   ", m.posterPanel())
-}
-
-func (m Model) posterPanel() string {
-	film, _ := m.selectedFilm()
-	p, requested := m.posters[film.Slug]
-	art := p.art
-	if art == "" {
-		message := "Loading poster…"
-		if p.failed {
-			message = "No poster"
-		} else if !requested {
-			message = ""
-		}
-		art = mutedStyle.Width(posterWidth).Height(posterHeight).
-			Align(lipgloss.Center, lipgloss.Center).Render(message)
-	}
-	return posterBorder.Render(art)
+	return header + "\n\n" + m.bars(tally, width, rows)
 }
 
 // bars renders one row per film, scrolled to keep the selection visible.
@@ -201,15 +199,71 @@ func barOf(value, max, width int) string {
 	return bar
 }
 
-func (m Model) footer() string {
-	keys := [][2]string{{"←/→", "rating"}, {"tab", "shared"}, {"↑/↓", "select"}, {"e", "export"}, {"q", "quit"}}
+// posterPanel shows the selected film's poster beside the page, with its
+// title underneath. It takes up to half of width, and as much of height as
+// that allows, while leaving minPageWidth columns for the page. It's empty
+// when there's no room or no film is selected.
+func (m Model) posterPanel(width, height int) string {
+	film, ok := m.selectedFilm()
+	if m.cfg.Poster == nil || !ok {
+		return ""
+	}
+	// The border takes two columns and two rows, and the caption one row.
+	width, height = posterSize(min(width/2, width-minPageWidth-posterGap)-2, height-3)
+	if height < minPosterHeight {
+		return ""
+	}
+
+	p, requested := m.posters[film.Slug]
+	var art string
+	if p.img != nil {
+		art = m.drawPoster(film.Slug, p.img, width, height)
+	} else {
+		message := ""
+		switch {
+		case p.failed:
+			message = "No poster"
+		case requested:
+			message = "Loading poster…"
+		}
+		art = mutedStyle.Width(width).Height(height).Align(lipgloss.Center, lipgloss.Center).Render(message)
+	}
+	caption := boldStyle.Width(width + 2).Align(lipgloss.Center).Render(ansi.Truncate(film.Title, width+2, "…"))
+	return posterBorder.Render(art) + "\n" + caption
+}
+
+// drawPoster renders a poster, reusing the last rendering when the poster and
+// its size haven't changed.
+func (m Model) drawPoster(slug string, img image.Image, width, height int) string {
+	if a := m.art; a.slug != slug || a.width != width || a.height != height {
+		*a = posterArt{slug: slug, width: width, height: height, text: renderPoster(img, width, height)}
+	}
+	return m.art.text
+}
+
+func (m Model) footer(width int) string {
+	top4 := "hide top 4"
+	if m.hideFavorites {
+		top4 = "show top 4"
+	}
+	keys := [][2]string{{"←/→", "rating"}, {"tab", "shared"}, {"f", top4}, {"↑/↓", "select"}, {"e", "export"}, {"q", "quit"}}
 	var help []string
 	for _, k := range keys {
 		help = append(help, keyStyle.Render(k[0])+" "+helpTextStyle.Render(k[1]))
 	}
-	footer := strings.Join(help, helpTextStyle.Render("  ·  "))
+	// Wrap the help onto more lines rather than cutting keys off.
+	separator := helpTextStyle.Render("  ·  ")
+	lines := []string{help[0]}
+	for _, item := range help[1:] {
+		if last := len(lines) - 1; lipgloss.Width(lines[last]+separator+item) <= width {
+			lines[last] += separator + item
+		} else {
+			lines = append(lines, item)
+		}
+	}
+	footer := strings.Join(lines, "\n")
 	if m.notice != "" {
-		footer = m.notice + "\n" + footer
+		footer = ansi.Truncate(m.notice, width, "…") + "\n" + footer
 	}
 	return footer
 }

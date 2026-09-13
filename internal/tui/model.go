@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"image"
+	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
@@ -43,15 +44,18 @@ type Model struct {
 	matches   [5]int // members found, by how many favorites they share
 	scanned   int
 	failed    int
+	unscanned int // matches never scanned because Letterboxd kept blocking
 	results   scan.Results
 	retryAt   time.Time // when a blocked request is retried; zero when not blocked
 
 	// Chart controls.
-	star      int // index into cfg.Scan.Stars
-	minShared int
-	selected  int
-	notice    string            // result of the last export
-	posters   map[string]poster // by film slug, once requested
+	star          int // index into cfg.Scan.Stars
+	minShared     int
+	hideFavorites bool // leave the Top 4 out of the chart
+	selected      int
+	notice        string            // result of the last export
+	posters       map[string]poster // by film slug, once requested
+	art           *posterArt
 
 	width, height int
 	spinner       spinner.Model
@@ -59,8 +63,16 @@ type Model struct {
 }
 
 type poster struct {
-	art    string // rendered half blocks; empty while loading
+	img    image.Image // nil while loading
 	failed bool
+}
+
+// posterArt holds the last poster drawn. View runs on every frame, and
+// scaling an image is too slow to repeat that often.
+type posterArt struct {
+	slug          string
+	width, height int
+	text          string
 }
 
 type (
@@ -69,7 +81,7 @@ type (
 	posterDueMsg struct{ slug string }
 	posterMsg    struct {
 		slug string
-		art  string
+		img  image.Image
 		err  error
 	}
 	exportedMsg struct {
@@ -87,6 +99,7 @@ func New(ctx context.Context, cfg Config) Model {
 		start:     time.Now(),
 		minShared: cfg.Scan.MinShared,
 		posters:   map[string]poster{},
+		art:       &posterArt{},
 		spinner:   spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(activeStyle)),
 		progress:  progress.New(progress.WithColors(orange, green), progress.WithoutPercentage(), progress.WithWidth(28)),
 	}
@@ -124,7 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case posterMsg:
-		m.posters[msg.slug] = poster{art: msg.art, failed: msg.err != nil}
+		m.posters[msg.slug] = poster{img: msg.img, failed: msg.err != nil}
 	case exportedMsg:
 		if msg.err != nil {
 			m.notice = errorStyle.Render("Export failed: " + msg.err.Error())
@@ -164,7 +177,7 @@ func (m *Model) apply(e scan.Event) {
 	case scan.UserFailed:
 		m.failed++
 	case scan.Finished:
-		m.done, m.err, m.elapsed = true, e.Err, time.Since(m.start)
+		m.done, m.err, m.unscanned, m.elapsed = true, e.Err, e.Unscanned, time.Since(m.start)
 	}
 }
 
@@ -185,6 +198,8 @@ func (m Model) handleKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.minShared = m.cfg.Scan.MinShared
 		}
 		m.selected = 0
+	case "f":
+		m.hideFavorites, m.selected = !m.hideFavorites, 0
 	case "up", "k":
 		m.selected = max(m.selected-1, 0)
 	case "down", "j":
@@ -207,8 +222,16 @@ func (m Model) rating() letterboxd.Rating {
 	return m.cfg.Scan.Stars[m.star]
 }
 
+// tally is the chart's data: the selected rating and tier, without the Top 4
+// when they're hidden.
 func (m Model) tally() []scan.FilmCount {
-	return m.results.Tally(m.rating(), m.minShared)
+	tally := m.results.Tally(m.rating(), m.minShared)
+	if m.hideFavorites {
+		tally = slices.DeleteFunc(tally, func(c scan.FilmCount) bool {
+			return slices.ContainsFunc(m.favorites, func(f letterboxd.Film) bool { return f.Slug == c.Film.Slug })
+		})
+	}
+	return tally
 }
 
 func (m Model) selectedFilm() (letterboxd.Film, bool) {
@@ -232,10 +255,7 @@ func (m Model) schedulePoster() tea.Cmd {
 func (m Model) loadPoster(slug string) tea.Cmd {
 	return func() tea.Msg {
 		img, err := m.cfg.Poster(m.ctx, slug)
-		if err != nil {
-			return posterMsg{slug: slug, err: err}
-		}
-		return posterMsg{slug: slug, art: renderPoster(img, posterWidth, posterHeight)}
+		return posterMsg{slug: slug, img: img, err: err}
 	}
 }
 
