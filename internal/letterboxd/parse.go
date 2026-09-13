@@ -3,6 +3,7 @@ package letterboxd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -78,6 +79,29 @@ func parseRatedPage(html string) (ratedPage, error) {
 		page.Films[Rating(stars)] = append(page.Films[Rating(stars)], film)
 	})
 	return page, nil
+}
+
+// parseFilmSearch reads films from Letterboxd's film autocomplete JSON, best
+// match first.
+func parseFilmSearch(body string) ([]Film, error) {
+	var results struct {
+		Data []struct {
+			Slug        string `json:"slug"`
+			Name        string `json:"name"`
+			ReleaseYear int    `json:"releaseYear"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &results); err != nil {
+		return nil, err
+	}
+	films := make([]Film, len(results.Data))
+	for i, r := range results.Data {
+		films[i] = Film{Slug: r.Slug, Title: r.Name}
+		if r.ReleaseYear != 0 {
+			films[i].Title = fmt.Sprintf("%s (%d)", r.Name, r.ReleaseYear)
+		}
+	}
+	return films, nil
 }
 
 // parsePosterURL reads the poster image URL from a film page's JSON-LD.

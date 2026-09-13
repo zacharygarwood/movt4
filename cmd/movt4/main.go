@@ -25,7 +25,8 @@ const usage = `Usage:
   movt4 [flags] --films <film>,<film>,<film>,<film>
 
 Finds members who share your Top 4 favorites and charts the films they rated.
-Films can be slugs (parasite-2019) or Letterboxd film URLs.
+Films can be names, misspelled or without a year ("grand budapest",
+"parasite 2019"), or Letterboxd film URLs.
 
 Flags:
 `
@@ -118,8 +119,9 @@ func scanConfig(args []string, films, stars string, minShared, maxUsers int) (sc
 		cfg.Username = strings.ToLower(strings.Trim(args[0], "/@ "))
 	case len(args) == 0 && films != "":
 		for _, film := range strings.Split(films, ",") {
-			slug := filmSlug(film)
-			cfg.Films = append(cfg.Films, letterboxd.Film{Slug: slug, Title: slug})
+			if film = strings.TrimSpace(film); film != "" {
+				cfg.Films = append(cfg.Films, film)
+			}
 		}
 		if len(cfg.Films) > 4 {
 			return cfg, errors.New("--films takes at most 4 films")
@@ -142,14 +144,4 @@ func scanConfig(args []string, films, stars string, minShared, maxUsers int) (sc
 		cfg.Stars = append(cfg.Stars, rating)
 	}
 	return cfg, nil
-}
-
-// filmSlug accepts a slug or any Letterboxd film URL and returns the slug.
-func filmSlug(film string) string {
-	film = strings.TrimSpace(film)
-	if _, after, found := strings.Cut(film, "/film/"); found {
-		film = after
-	}
-	slug, _, _ := strings.Cut(film, "/")
-	return slug
 }

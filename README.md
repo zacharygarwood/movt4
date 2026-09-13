@@ -22,10 +22,12 @@ go build ./cmd/movt4
 
 ```sh
 movt4 <letterboxd-username>
-movt4 --films parasite-2019,the-grand-budapest-hotel,whiplash-2014,the-lighthouse-2019
+movt4 --films "parasite, grand budapest, whiplash, lighthouse"
 ```
 
-Films can be slugs or Letterboxd film URLs.
+Films are separated by commas. Names don't need exact spelling or a year
+("grand budpest" and "parasite 2019" both work), and Letterboxd film URLs
+work too.
 
 | Flag           | Default   | Description                                         |
 | -------------- | --------- | --------------------------------------------------- |

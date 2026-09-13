@@ -77,3 +77,17 @@ func TestParsePosterURL(t *testing.T) {
 		t.Errorf("url = %q", url)
 	}
 }
+
+func TestParseFilmSearch(t *testing.T) {
+	films, err := parseFilmSearch(budapestResults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Film{
+		{"the-grand-budapest-hotel", "The Grand Budapest Hotel (2014)"},
+		{"the-making-of-the-grand-budapest-hotel", "The Making of The Grand Budapest Hotel (2014)"},
+	}
+	if !reflect.DeepEqual(films, want) {
+		t.Errorf("got %v, want %v", films, want)
+	}
+}

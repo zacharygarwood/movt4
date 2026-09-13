@@ -2,6 +2,7 @@ package letterboxd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg" // posters are JPEGs
@@ -60,6 +61,42 @@ func (c *Client) SearchFans(ctx context.Context, slugs []string, minShared int) 
 			cursor = page.Cursor
 		}
 	}
+}
+
+// FindFilm looks up the film a query names. It forgives typos and missing
+// years, so "grand budapest" and "parasite 2019" both work, as do Letterboxd
+// film URLs. A result whose slug matches the query exactly wins; otherwise
+// it's Letterboxd's best match.
+func (c *Client) FindFilm(ctx context.Context, query string) (Film, error) {
+	slug := filmSlug(query)
+	search := strings.ReplaceAll(slug, "-", " ")
+	body, err := c.guarded.Get(ctx, baseURL+"/s/autocompletefilm?limit=5&q="+url.QueryEscape(search))
+	if err != nil {
+		return Film{}, err
+	}
+	films, err := parseFilmSearch(body)
+	if err != nil {
+		return Film{}, err
+	}
+	if len(films) == 0 {
+		return Film{}, errors.New("no matching film")
+	}
+	for _, film := range films {
+		if film.Slug == slug {
+			return film, nil
+		}
+	}
+	return films[0], nil
+}
+
+// filmSlug returns the slug from a Letterboxd film URL, or the trimmed query
+// when it isn't one.
+func filmSlug(query string) string {
+	query = strings.TrimSpace(query)
+	if _, after, found := strings.Cut(query, "/film/"); found {
+		query, _, _ = strings.Cut(after, "/")
+	}
+	return query
 }
 
 // RatedFilms returns the films a member rated from `from` to `to` stars,

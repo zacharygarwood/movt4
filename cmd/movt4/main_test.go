@@ -2,19 +2,6 @@ package main
 
 import "testing"
 
-func TestFilmSlug(t *testing.T) {
-	tests := map[string]string{
-		"parasite-2019": "parasite-2019",
-		" https://letterboxd.com/film/parasite-2019/ ": "parasite-2019",
-		"letterboxd.com/film/whiplash-2014/reviews/":   "whiplash-2014",
-	}
-	for in, want := range tests {
-		if got := filmSlug(in); got != want {
-			t.Errorf("filmSlug(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestScanConfig(t *testing.T) {
 	cfg, err := scanConfig([]string{"Zach"}, "", "5,4.5", 3, 50)
 	if err != nil {
@@ -24,9 +11,9 @@ func TestScanConfig(t *testing.T) {
 		t.Errorf("got %+v", cfg)
 	}
 
-	cfg, err = scanConfig(nil, "a,b,c,d", "5", 2, 0)
-	if err != nil || len(cfg.Films) != 4 {
-		t.Errorf("--films: got %+v, %v", cfg, err)
+	cfg, err = scanConfig(nil, " grand budapest, parasite 2019 ,", "5", 2, 0)
+	if err != nil || len(cfg.Films) != 2 || cfg.Films[1] != "parasite 2019" {
+		t.Errorf("--films: got %q, %v", cfg.Films, err)
 	}
 }
 

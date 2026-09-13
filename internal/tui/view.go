@@ -64,7 +64,7 @@ func (m Model) header(width int) string {
 }
 
 func (m Model) steps(width int) string {
-	favorites := "Read your Top 4"
+	favorites := "Find your films"
 	if m.cfg.Scan.Username != "" {
 		favorites = "Read " + m.cfg.Scan.Username + "'s Top 4"
 	}

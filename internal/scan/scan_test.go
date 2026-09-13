@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zacharygarwood/movt4/internal/letterboxd"
@@ -15,6 +16,7 @@ var (
 	parasite = letterboxd.Film{Slug: "parasite-2019", Title: "Parasite (2019)"}
 	whiplash = letterboxd.Film{Slug: "whiplash-2014", Title: "Whiplash (2014)"}
 	top4     = []letterboxd.Film{parasite, whiplash, {Slug: "c"}, {Slug: "d"}}
+	queries  = []string{"parasite", "whiplash", "c", "d"}
 )
 
 type fakeSource struct {
@@ -47,6 +49,14 @@ func (f fakeSource) RatedFilms(_ context.Context, username string, from, _ lette
 		return nil, errors.New("not found")
 	}
 	return map[letterboxd.Rating][]letterboxd.Film{from: films}, nil
+}
+
+// FindFilm finds a film for any query except "nope".
+func (f fakeSource) FindFilm(_ context.Context, query string) (letterboxd.Film, error) {
+	if query == "nope" {
+		return letterboxd.Film{}, errors.New("no matching film")
+	}
+	return letterboxd.Film{Slug: query, Title: query}, nil
 }
 
 func collect(t *testing.T, cfg Config, src Source) (Results, []string, Finished) {
@@ -104,7 +114,7 @@ func TestRunStopsAtMaxUsers(t *testing.T) {
 		search: map[int][][]string{4: {{"a", "b"}, {"c"}}, 3: {{"d"}}},
 		rated:  map[string][]letterboxd.Film{"a": nil, "b": nil, "c": nil, "d": nil},
 	}
-	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 3, MaxUsers: 3}
+	cfg := Config{Films: queries, Stars: []letterboxd.Rating{10}, MinShared: 3, MaxUsers: 3}
 
 	results, _, done := collect(t, cfg, src)
 	if done.Err != nil {
@@ -116,7 +126,7 @@ func TestRunStopsAtMaxUsers(t *testing.T) {
 }
 
 func TestRunWithoutMatches(t *testing.T) {
-	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 2}
+	cfg := Config{Films: queries, Stars: []letterboxd.Rating{10}, MinShared: 2}
 	if _, _, done := collect(t, cfg, fakeSource{}); done.Err == nil {
 		t.Error("want an error when nobody matches")
 	}
@@ -128,7 +138,7 @@ func TestRunKeepsMatchesWhenSearchIsBlocked(t *testing.T) {
 		searchErr: map[int]error{4: letterboxd.ErrBlocked},
 		rated:     map[string][]letterboxd.Film{"ana": nil, "ben": nil},
 	}
-	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 3}
+	cfg := Config{Films: queries, Stars: []letterboxd.Rating{10}, MinShared: 3}
 
 	results, _, done := collect(t, cfg, src)
 	if done.Err != nil {
@@ -157,7 +167,7 @@ func TestRunFinishesEarlyWhenBlockedRepeatedly(t *testing.T) {
 		fakeSource: fakeSource{search: map[int][][]string{4: {{"a", "b", "c", "d", "e", "f"}}}},
 		allowed:    map[string]bool{"b": true},
 	}
-	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 4}
+	cfg := Config{Films: queries, Stars: []letterboxd.Rating{10}, MinShared: 4}
 
 	results, failed, done := collect(t, cfg, src)
 	// b resets the count, so c, d and e are three blocks in a row and f is never tried.
@@ -178,7 +188,7 @@ func (rangedSource) RatedFilms(_ context.Context, _ string, from, to letterboxd.
 
 func TestRunFetchesRatingsAsOneRange(t *testing.T) {
 	src := rangedSource{fakeSource{search: map[int][][]string{4: {{"ana"}}}}}
-	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10, 8}, MinShared: 4}
+	cfg := Config{Films: queries, Stars: []letterboxd.Rating{10, 8}, MinShared: 4}
 
 	results, failed, done := collect(t, cfg, src)
 	if done.Err != nil || len(failed) != 0 || len(results.Users) != 1 {
@@ -188,5 +198,12 @@ func TestRunFetchesRatingsAsOneRange(t *testing.T) {
 	want := map[letterboxd.Rating][]letterboxd.Film{10: {parasite}, 8: {parasite}}
 	if got := results.Users[0].Ratings; !reflect.DeepEqual(got, want) {
 		t.Errorf("ratings = %v, want %v", got, want)
+	}
+}
+
+func TestRunNamesFilmsItCantFind(t *testing.T) {
+	cfg := Config{Films: []string{"parasite", "nope"}, Stars: []letterboxd.Rating{10}, MinShared: 2}
+	if _, _, done := collect(t, cfg, fakeSource{}); done.Err == nil || !strings.Contains(done.Err.Error(), `"nope"`) {
+		t.Errorf("err = %v, want it to name the film it couldn't find", done.Err)
 	}
 }

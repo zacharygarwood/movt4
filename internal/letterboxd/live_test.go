@@ -68,6 +68,10 @@ func TestLiveClient(t *testing.T) {
 		t.Fatalf("Favorites = %v, %v; want 4 films", favorites, err)
 	}
 
+	if film, err := client.FindFilm(ctx, "lighthose"); err != nil || film.Slug != "the-lighthouse-2019" {
+		t.Errorf("FindFilm(lighthose) = %+v, %v; want The Lighthouse (2019)", film, err)
+	}
+
 	pages := 0
 	seen := map[string]bool{}
 	slugs := []string{"parasite-2019", "the-grand-budapest-hotel", "whiplash-2014", "the-lighthouse-2019"}

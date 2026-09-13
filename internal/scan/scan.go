@@ -22,6 +22,7 @@ type Source interface {
 	Favorites(ctx context.Context, username string) ([]letterboxd.Film, error)
 	SearchFans(ctx context.Context, slugs []string, minShared int) iter.Seq2[[]string, error]
 	RatedFilms(ctx context.Context, username string, from, to letterboxd.Rating) (map[letterboxd.Rating][]letterboxd.Film, error)
+	FindFilm(ctx context.Context, query string) (letterboxd.Film, error)
 }
 
 // Dialer connects to a Source. Starting the browser is slow enough to be
@@ -31,8 +32,8 @@ type Dialer func(ctx context.Context, report func(Event)) (Source, error)
 
 // Config describes a scan.
 type Config struct {
-	Username  string            // read the Top 4 from this member's profile...
-	Films     []letterboxd.Film // ...or match against these films instead
+	Username  string   // read the Top 4 from this member's profile...
+	Films     []string // ...or look up these films by name or URL instead
 	Stars     []letterboxd.Rating
 	MinShared int // the fewest shared favorites that count as a match
 	MaxUsers  int // stop matching after this many members; 0 means no limit
@@ -114,12 +115,19 @@ func (s *scanner) run(dial Dialer) error {
 }
 
 func (s *scanner) favorites(src Source) ([]letterboxd.Film, error) {
-	films := s.cfg.Films
+	var films []letterboxd.Film
 	if s.cfg.Username != "" {
 		var err error
 		if films, err = src.Favorites(s.ctx, s.cfg.Username); err != nil {
 			return nil, fmt.Errorf("reading %s's profile: %w", s.cfg.Username, err)
 		}
+	}
+	for _, query := range s.cfg.Films {
+		film, err := src.FindFilm(s.ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("looking up %q: %w", query, err)
+		}
+		films = append(films, film)
 	}
 	if len(films) < s.cfg.MinShared {
 		return nil, fmt.Errorf("need at least %d favorite films to match on, found %d", s.cfg.MinShared, len(films))
