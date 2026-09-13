@@ -189,14 +189,12 @@ func (m Model) bars(tally []scan.FilmCount, width, rows int) string {
 	return strings.Join(lines, "\n")
 }
 
-// barOf draws value relative to max using eighth blocks for smooth ends.
-func barOf(value, max, width int) string {
-	eighths := value * width * 8 / max
-	bar := strings.Repeat("█", eighths/8)
-	if rem := eighths % 8; rem > 0 {
-		bar += string([]rune("▏▎▍▌▋▊▉")[rem-1])
-	}
-	return bar
+// barOf draws value relative to largest in up to width cells. Bars fill the
+// lower three quarters of their row, so the gap above each keeps neighbors
+// distinct. That block has no partial-width forms, so a bar is rounded to
+// whole cells and never drawn shorter than one.
+func barOf(value, largest, width int) string {
+	return strings.Repeat("▆", max(1, (value*width+largest/2)/largest))
 }
 
 // posterPanel shows the selected film's poster beside the page, with its

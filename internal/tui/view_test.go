@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -126,6 +127,19 @@ func TestViewFitsPosterBesideThePage(t *testing.T) {
 		// With a poster, the title appears twice: in the chart and as the caption.
 		if hasPoster := strings.Count(ansi.Strip(content), interstellar.Title) == 2; hasPoster != tt.wantPoster {
 			t.Errorf("%d×%d: poster shown = %v, want %v", tt.size.Width, tt.size.Height, hasPoster, tt.wantPoster)
+		}
+	}
+}
+
+func TestBarOf(t *testing.T) {
+	tests := []struct{ value, largest, width, cells int }{
+		{10, 10, 20, 20}, // the largest fills the width
+		{5, 10, 20, 10},
+		{1, 100, 20, 1}, // never vanishes
+	}
+	for _, tt := range tests {
+		if got := utf8.RuneCountInString(barOf(tt.value, tt.largest, tt.width)); got != tt.cells {
+			t.Errorf("barOf(%d, %d, %d) is %d cells, want %d", tt.value, tt.largest, tt.width, got, tt.cells)
 		}
 	}
 }
