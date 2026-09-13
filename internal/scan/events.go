@@ -1,6 +1,10 @@
 package scan
 
-import "github.com/zacharygarwood/movt4/internal/letterboxd"
+import (
+	"time"
+
+	"github.com/zacharygarwood/movt4/internal/letterboxd"
+)
 
 // Stage is a step of the scan, in the order they run.
 type Stage int
@@ -38,6 +42,10 @@ type UserFailed struct {
 	Err      error
 }
 
+// Blocked reports that Cloudflare is blocking requests and the blocked
+// request will be tried again at RetryAt.
+type Blocked struct{ RetryAt time.Time }
+
 // Finished is the last event. Err is nil when the scan completed.
 type Finished struct{ Err error }
 
@@ -46,4 +54,5 @@ func (FavoritesLoaded) isEvent() {}
 func (MatchesFound) isEvent()    {}
 func (UserScanned) isEvent()     {}
 func (UserFailed) isEvent()      {}
+func (Blocked) isEvent()         {}
 func (Finished) isEvent()        {}

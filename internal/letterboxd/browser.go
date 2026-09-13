@@ -15,9 +15,9 @@ import (
 // challengeTitle is the page title Cloudflare shows while its challenge runs.
 const challengeTitle = "Just a moment..."
 
-// errBlocked means Cloudflare still refused requests after its challenge,
+// ErrBlocked means Cloudflare still refused requests after its challenge,
 // which happens for a while after many requests in a short time.
-var errBlocked = errors.New("Letterboxd's Cloudflare protection is blocking this network for now; wait a few minutes and try again")
+var ErrBlocked = errors.New("Letterboxd's Cloudflare protection is blocking this network for now; wait a few minutes and try again")
 
 // BrowserFetcher fetches Cloudflare-guarded pages through a headless Chromium
 // tab. The first guarded request navigates the tab so the challenge can run
@@ -71,7 +71,7 @@ func (b *BrowserFetcher) Get(ctx context.Context, url string) (string, error) {
 			return "", err
 		}
 		if status, body, err = b.fetchInPage(url); err == nil && status == 403 {
-			return "", errBlocked
+			return "", ErrBlocked
 		}
 	}
 	if err != nil {
@@ -117,7 +117,7 @@ func (b *BrowserFetcher) solveChallenge(url string) error {
 			return nil
 		}
 	}
-	return errBlocked
+	return ErrBlocked
 }
 
 func (b *BrowserFetcher) run(timeout time.Duration, actions ...chromedp.Action) error {

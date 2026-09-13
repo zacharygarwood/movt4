@@ -29,6 +29,10 @@ Films can be slugs (parasite-2019) or Letterboxd film URLs.
 Flags:
 `
 
+// blockedWaits are the pauses before retrying a request Cloudflare blocked.
+// Blocks seen so far have lifted within a few minutes.
+var blockedWaits = []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "movt4:", err)
@@ -59,13 +63,16 @@ func run() error {
 
 	open := letterboxd.Throttle(letterboxd.HTTPFetcher{}, *delay)
 	var browser atomic.Pointer[letterboxd.BrowserFetcher]
-	dial := func(ctx context.Context) (scan.Source, error) {
+	dial := func(ctx context.Context, report func(scan.Event)) (scan.Source, error) {
 		b, err := letterboxd.NewBrowserFetcher(ctx)
 		if err != nil {
 			return nil, err
 		}
 		browser.Store(b)
-		return letterboxd.NewClient(open, letterboxd.Throttle(b, *delay)), nil
+		guarded := letterboxd.RetryBlocked(letterboxd.Throttle(b, *delay), blockedWaits, func(wait time.Duration) {
+			report(scan.Blocked{RetryAt: time.Now().Add(wait)})
+		})
+		return letterboxd.NewClient(open, guarded), nil
 	}
 
 	// Posters are on pages Cloudflare doesn't guard, so they skip the browser.

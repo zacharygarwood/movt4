@@ -44,6 +44,7 @@ type Model struct {
 	scanned   int
 	failed    int
 	results   scan.Results
+	retryAt   time.Time // when a blocked request is retried; zero when not blocked
 
 	// Chart controls.
 	star      int // index into cfg.Scan.Stars
@@ -145,7 +146,12 @@ func waitForEvent(events <-chan scan.Event) tea.Cmd {
 }
 
 func (m *Model) apply(e scan.Event) {
+	if _, blocked := e.(scan.Blocked); !blocked {
+		m.retryAt = time.Time{} // any other event means requests are getting through
+	}
 	switch e := e.(type) {
+	case scan.Blocked:
+		m.retryAt = e.RetryAt
 	case scan.StageStarted:
 		m.stage = e.Stage
 	case scan.FavoritesLoaded:

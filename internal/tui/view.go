@@ -59,6 +59,10 @@ func (m Model) steps(width int) string {
 		m.step(scan.StageSearch, "Find people who share your taste", m.searchDetail()),
 		m.step(scan.StageRatings, "Fetch their ratings", m.ratingsDetail(width-stepLabelWidth-2)),
 	}
+	if !m.retryAt.IsZero() {
+		wait := max(time.Until(m.retryAt).Round(time.Second), 0)
+		lines = append(lines, "  "+activeStyle.Render("Cloudflare is blocking requests, trying again in "+wait.String()))
+	}
 	if m.err != nil {
 		lines = append(lines, "  "+errorStyle.Width(width-2).Render(m.err.Error()))
 	}

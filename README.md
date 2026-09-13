@@ -37,6 +37,10 @@ Films can be slugs or Letterboxd film URLs.
 Matches are filled from the closest tier down: everyone sharing all 4 films,
 then 3, then 2, until `--max-users` is reached.
 
+If Cloudflare starts blocking requests, movt4 shows a countdown and retries
+after 30s, 1m, 2m and 4m before giving up. Blocks usually lift within a few
+minutes; a longer `--delay` makes them less likely.
+
 ### Keys
 
 | Key   | Action                                    |

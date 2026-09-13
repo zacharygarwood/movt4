@@ -45,7 +45,7 @@ func (f fakeSource) RatedFilms(_ context.Context, username string, _ letterboxd.
 
 func collect(t *testing.T, cfg Config, src Source) (Results, []string, error) {
 	t.Helper()
-	dial := func(context.Context) (Source, error) { return src, nil }
+	dial := func(context.Context, func(Event)) (Source, error) { return src, nil }
 	var results Results
 	var failed []string
 	var finished error
@@ -113,5 +113,21 @@ func TestRunWithoutMatches(t *testing.T) {
 	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 2}
 	if _, _, err := collect(t, cfg, fakeSource{}); err == nil {
 		t.Error("want an error when nobody matches")
+	}
+}
+
+type blockedSource struct{ fakeSource }
+
+func (blockedSource) RatedFilms(context.Context, string, letterboxd.Rating) ([]letterboxd.Film, error) {
+	return nil, letterboxd.ErrBlocked
+}
+
+func TestRunStopsWhenBlocked(t *testing.T) {
+	src := blockedSource{fakeSource{search: map[int][][]string{4: {{"a", "b"}}}}}
+	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 4}
+
+	_, failed, err := collect(t, cfg, src)
+	if !errors.Is(err, letterboxd.ErrBlocked) || len(failed) != 0 {
+		t.Errorf("got err %v and failed %v, want ErrBlocked and no skipped users", err, failed)
 	}
 }

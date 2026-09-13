@@ -21,7 +21,8 @@ type Source interface {
 
 // Dialer connects to a Source. Starting the browser is slow enough to be
 // reported as its own stage, so the scan does it rather than the caller.
-type Dialer func(ctx context.Context) (Source, error)
+// report lets the Source send events of its own, such as Blocked.
+type Dialer func(ctx context.Context, report func(Event)) (Source, error)
 
 // Config describes a scan.
 type Config struct {
@@ -64,7 +65,7 @@ func (s *scanner) emit(e Event) {
 
 func (s *scanner) run(dial Dialer) error {
 	s.emit(StageStarted{StageConnect})
-	src, err := dial(s.ctx)
+	src, err := dial(s.ctx, s.emit)
 	if err != nil {
 		return err
 	}
@@ -87,6 +88,9 @@ func (s *scanner) run(dial Dialer) error {
 		user, err := s.fetchRatings(src, m)
 		if s.ctx.Err() != nil {
 			return s.ctx.Err()
+		}
+		if errors.Is(err, letterboxd.ErrBlocked) {
+			return err // every later request would be blocked too
 		}
 		if err != nil {
 			s.emit(UserFailed{Username: m.username, Err: err})

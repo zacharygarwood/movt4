@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -40,5 +41,22 @@ func TestViewChartsScannedRatings(t *testing.T) {
 	}
 	if strings.Index(screen, "Interstellar") > strings.Index(screen, "Parasite (2019)  ") {
 		t.Error("Interstellar (2 ratings) should be charted above Parasite (1 rating)")
+	}
+}
+
+func TestViewShowsBlockedCountdown(t *testing.T) {
+	cfg := Config{Scan: scan.Config{Stars: []letterboxd.Rating{10}, MinShared: 2}}
+	var model tea.Model = New(context.Background(), cfg)
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model, _ = model.Update(eventMsg{scan.StageStarted{Stage: scan.StageSearch}})
+	model, _ = model.Update(eventMsg{scan.Blocked{RetryAt: time.Now().Add(time.Minute)}})
+
+	if screen := ansi.Strip(model.View().Content); !strings.Contains(screen, "trying again in 1m0s") {
+		t.Errorf("screen is missing the retry countdown:\n%s", screen)
+	}
+
+	model, _ = model.Update(eventMsg{scan.MatchesFound{Shared: 4}})
+	if screen := ansi.Strip(model.View().Content); strings.Contains(screen, "trying again") {
+		t.Error("the countdown should clear once requests get through")
 	}
 }
