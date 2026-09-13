@@ -17,8 +17,9 @@ var (
 )
 
 type fakeSource struct {
-	search map[int][][]string // search result pages by minShared
-	rated  map[string][]letterboxd.Film
+	search    map[int][][]string // search result pages by minShared
+	searchErr map[int]error      // returned after a tier's pages
+	rated     map[string][]letterboxd.Film
 }
 
 func (f fakeSource) Favorites(context.Context, string) ([]letterboxd.Film, error) {
@@ -32,6 +33,9 @@ func (f fakeSource) SearchFans(_ context.Context, _ []string, minShared int) ite
 				return
 			}
 		}
+		if err := f.searchErr[minShared]; err != nil {
+			yield(nil, err)
+		}
 	}
 }
 
@@ -43,12 +47,12 @@ func (f fakeSource) RatedFilms(_ context.Context, username string, _ letterboxd.
 	return films, nil
 }
 
-func collect(t *testing.T, cfg Config, src Source) (Results, []string, error) {
+func collect(t *testing.T, cfg Config, src Source) (Results, []string, Finished) {
 	t.Helper()
 	dial := func(context.Context, func(Event)) (Source, error) { return src, nil }
 	var results Results
 	var failed []string
-	var finished error
+	var done Finished
 	for e := range Run(context.Background(), cfg, dial) {
 		switch e := e.(type) {
 		case UserScanned:
@@ -56,10 +60,10 @@ func collect(t *testing.T, cfg Config, src Source) (Results, []string, error) {
 		case UserFailed:
 			failed = append(failed, e.Username)
 		case Finished:
-			finished = e.Err
+			done = e
 		}
 	}
-	return results, failed, finished
+	return results, failed, done
 }
 
 func TestRunAssignsTiersAndSkipsFailures(t *testing.T) {
@@ -77,9 +81,9 @@ func TestRunAssignsTiersAndSkipsFailures(t *testing.T) {
 	}
 	cfg := Config{Username: "me", Stars: []letterboxd.Rating{10}, MinShared: 2}
 
-	results, failed, err := collect(t, cfg, src)
-	if err != nil {
-		t.Fatal(err)
+	results, failed, done := collect(t, cfg, src)
+	if done.Err != nil {
+		t.Fatal(done.Err)
 	}
 	shared := map[string]int{}
 	for _, u := range results.Users {
@@ -100,9 +104,9 @@ func TestRunStopsAtMaxUsers(t *testing.T) {
 	}
 	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 3, MaxUsers: 3}
 
-	results, _, err := collect(t, cfg, src)
-	if err != nil {
-		t.Fatal(err)
+	results, _, done := collect(t, cfg, src)
+	if done.Err != nil {
+		t.Fatal(done.Err)
 	}
 	if len(results.Users) != 3 {
 		t.Errorf("scanned %d users, want 3", len(results.Users))
@@ -111,23 +115,51 @@ func TestRunStopsAtMaxUsers(t *testing.T) {
 
 func TestRunWithoutMatches(t *testing.T) {
 	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 2}
-	if _, _, err := collect(t, cfg, fakeSource{}); err == nil {
+	if _, _, done := collect(t, cfg, fakeSource{}); done.Err == nil {
 		t.Error("want an error when nobody matches")
 	}
 }
 
-type blockedSource struct{ fakeSource }
+func TestRunKeepsMatchesWhenSearchIsBlocked(t *testing.T) {
+	src := fakeSource{
+		search:    map[int][][]string{4: {{"ana"}}, 3: {{"ben"}}},
+		searchErr: map[int]error{4: letterboxd.ErrBlocked},
+		rated:     map[string][]letterboxd.Film{"ana": nil, "ben": nil},
+	}
+	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 3}
 
-func (blockedSource) RatedFilms(context.Context, string, letterboxd.Rating) ([]letterboxd.Film, error) {
+	results, _, done := collect(t, cfg, src)
+	if done.Err != nil {
+		t.Fatal(done.Err)
+	}
+	if len(results.Users) != 1 || results.Users[0].Username != "ana" {
+		t.Errorf("scanned %+v, want only ana: the search should stop at the blocked tier", results.Users)
+	}
+}
+
+// blockedSource blocks every member's ratings except those in allowed.
+type blockedSource struct {
+	fakeSource
+	allowed map[string]bool
+}
+
+func (s blockedSource) RatedFilms(_ context.Context, username string, _ letterboxd.Rating) ([]letterboxd.Film, error) {
+	if s.allowed[username] {
+		return nil, nil
+	}
 	return nil, letterboxd.ErrBlocked
 }
 
-func TestRunStopsWhenBlocked(t *testing.T) {
-	src := blockedSource{fakeSource{search: map[int][][]string{4: {{"a", "b"}}}}}
+func TestRunFinishesEarlyWhenBlockedRepeatedly(t *testing.T) {
+	src := blockedSource{
+		fakeSource: fakeSource{search: map[int][][]string{4: {{"a", "b", "c", "d", "e", "f"}}}},
+		allowed:    map[string]bool{"b": true},
+	}
 	cfg := Config{Films: top4, Stars: []letterboxd.Rating{10}, MinShared: 4}
 
-	_, failed, err := collect(t, cfg, src)
-	if !errors.Is(err, letterboxd.ErrBlocked) || len(failed) != 0 {
-		t.Errorf("got err %v and failed %v, want ErrBlocked and no skipped users", err, failed)
+	results, failed, done := collect(t, cfg, src)
+	// b resets the count, so c, d and e are three blocks in a row and f is never tried.
+	if done.Err != nil || len(results.Users) != 1 || !reflect.DeepEqual(failed, []string{"a", "c", "d", "e"}) || done.Unscanned != 1 {
+		t.Errorf("got %d users, failed %v, %+v", len(results.Users), failed, done)
 	}
 }

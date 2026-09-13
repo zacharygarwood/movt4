@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,8 +31,8 @@ Flags:
 `
 
 // blockedWaits are the pauses before retrying a request Cloudflare blocked.
-// Blocks seen so far have lifted within a few minutes.
-var blockedWaits = []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute}
+// They stay short because a member who remains blocked is skipped.
+var blockedWaits = []time.Duration{20 * time.Second, time.Minute}
 
 func main() {
 	if err := run(); err != nil {
@@ -58,18 +59,25 @@ func run() error {
 		return err
 	}
 
+	profileDir, err := browserProfileDir()
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	open := letterboxd.Throttle(letterboxd.HTTPFetcher{}, *delay)
 	var browser atomic.Pointer[letterboxd.BrowserFetcher]
 	dial := func(ctx context.Context, report func(scan.Event)) (scan.Source, error) {
-		b, err := letterboxd.NewBrowserFetcher(ctx)
+		b, err := letterboxd.NewBrowserFetcher(ctx, profileDir)
 		if err != nil {
 			return nil, err
 		}
 		browser.Store(b)
-		guarded := letterboxd.RetryBlocked(letterboxd.Throttle(b, *delay), blockedWaits, func(wait time.Duration) {
+		paced := letterboxd.Throttle(b, *delay)
+		guarded := letterboxd.RetryBlocked(paced, blockedWaits, func(wait time.Duration) {
+			paced.SlowDown()
 			report(scan.Blocked{RetryAt: time.Now().Add(wait)})
 		})
 		return letterboxd.NewClient(open, guarded), nil
@@ -88,6 +96,17 @@ func run() error {
 		b.Close()
 	}
 	return err
+}
+
+// browserProfileDir is where Chromium keeps its profile between runs, so
+// Letterboxd sees a returning visitor rather than a new one each time.
+func browserProfileDir() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cache, "movt4", "chromium")
+	return dir, os.MkdirAll(dir, 0o700)
 }
 
 // scanConfig validates the command line and turns it into a scan.Config.

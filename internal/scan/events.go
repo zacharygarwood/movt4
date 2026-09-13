@@ -46,8 +46,13 @@ type UserFailed struct {
 // request will be tried again at RetryAt.
 type Blocked struct{ RetryAt time.Time }
 
-// Finished is the last event. Err is nil when the scan completed.
-type Finished struct{ Err error }
+// Finished is the last event. Err is nil when the scan completed, including
+// when Letterboxd kept blocking it and it finished early; Unscanned counts
+// the matches it didn't get to.
+type Finished struct {
+	Err       error
+	Unscanned int
+}
 
 func (StageStarted) isEvent()    {}
 func (FavoritesLoaded) isEvent() {}

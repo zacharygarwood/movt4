@@ -37,9 +37,11 @@ Films can be slugs or Letterboxd film URLs.
 Matches are filled from the closest tier down: everyone sharing all 4 films,
 then 3, then 2, until `--max-users` is reached.
 
-If Cloudflare starts blocking requests, movt4 shows a countdown and retries
-after 30s, 1m, 2m and 4m before giving up. Blocks usually lift within a few
-minutes; a longer `--delay` makes them less likely.
+Chromium keeps its profile in your cache directory (`~/.cache/movt4/chromium`
+on Linux), so Letterboxd sees a returning visitor. If Cloudflare still pushes
+back, movt4 slows down, retries, and skips members it can't reach. After three
+blocked members in a row it finishes with the results it has. A longer
+`--delay` makes blocks less likely.
 
 ### Keys
 
@@ -47,6 +49,7 @@ minutes; a longer `--delay` makes them less likely.
 | ----- | ----------------------------------------- |
 | ← / → | Switch star rating                        |
 | tab   | Cycle the minimum number of shared films  |
+| f     | Hide or show your Top 4 films             |
 | ↑ / ↓ | Select a film and show its poster         |
 | e     | Export results to JSON and CSV            |
 | q     | Quit                                      |
@@ -54,7 +57,7 @@ minutes; a longer `--delay` makes them less likely.
 ## Exports
 
 Pressing `e` writes two files to the current directory, at any point during
-or after a scan:
+or after a scan. Exports include every film, even while your Top 4 is hidden:
 
 - `movt4-<name>-<time>.json` has every matched member, how many favorites they
   share, and the films they gave each rating.

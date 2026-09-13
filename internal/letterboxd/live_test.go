@@ -7,19 +7,36 @@ package letterboxd
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/chromedp/chromedp"
 )
 
 func TestLiveBrowserFetcher(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	browser, err := NewBrowserFetcher(ctx)
+	browser, err := NewBrowserFetcher(ctx, profileDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer browser.Close()
+
+	var identity struct {
+		UserAgent string   `json:"ua"`
+		Brands    []string `json:"brands"`
+	}
+	script := `({ua: navigator.userAgent, brands: navigator.userAgentData.brands.map(b => b.brand)})`
+	if err := browser.run(10*time.Second, chromedp.Evaluate(script, &identity)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(identity.UserAgent, "Headless") || len(identity.Brands) == 0 {
+		t.Errorf("browser gives itself away: %+v", identity)
+	}
+	t.Logf("browser identity: %+v", identity)
 
 	for _, url := range []string{
 		baseURL + "/dave/films/rated/5/",
@@ -39,7 +56,7 @@ func TestLiveClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	browser, err := NewBrowserFetcher(ctx)
+	browser, err := NewBrowserFetcher(ctx, profileDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,4 +96,16 @@ func TestLiveClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("favorites %v, %d members, %d five-star films, poster %v", favorites, len(seen), len(films), poster.Bounds())
+}
+
+// profileDir gives a test browser a fresh profile. Chromium can still be
+// writing to it just after Close, so cleanup is best effort; t.TempDir would
+// fail the test instead.
+func profileDir(t *testing.T) string {
+	dir, err := os.MkdirTemp("", "movt4-live-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
 }

@@ -57,20 +57,39 @@ func (f HTTPFetcher) Get(ctx context.Context, url string) (string, error) {
 }
 
 // Throttle wraps f so that requests start at least every apart, keeping the
-// load on Letterboxd polite. The returned Fetcher is safe for concurrent use.
-func Throttle(f Fetcher, every time.Duration) Fetcher {
-	return &throttled{fetcher: f, every: every}
+// load on Letterboxd polite. The returned Throttler is safe for concurrent use.
+func Throttle(f Fetcher, every time.Duration) *Throttler {
+	return &Throttler{fetcher: f, base: every, every: every}
 }
 
-type throttled struct {
+// Slowing down: SlowDown doubles the spacing up to maxSlowdown times the
+// original, and every recoverAfter requests without another SlowDown halve it.
+const (
+	maxSlowdown  = 8
+	recoverAfter = 25
+)
+
+// Throttler spaces out requests and can slow down for a while when
+// Letterboxd pushes back.
+type Throttler struct {
 	fetcher Fetcher
-	every   time.Duration
+	base    time.Duration
 
-	mu   sync.Mutex
-	next time.Time
+	mu        sync.Mutex
+	every     time.Duration
+	next      time.Time
+	sinceSlow int // requests since the spacing last changed
 }
 
-func (t *throttled) Get(ctx context.Context, url string) (string, error) {
+// SlowDown doubles the spacing between requests.
+func (t *Throttler) SlowDown() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.every = min(t.every*2, t.base*maxSlowdown)
+	t.sinceSlow = 0
+}
+
+func (t *Throttler) Get(ctx context.Context, url string) (string, error) {
 	t.mu.Lock()
 	wait := time.Until(t.next)
 	if wait > 0 {
@@ -80,6 +99,9 @@ func (t *throttled) Get(ctx context.Context, url string) (string, error) {
 			t.mu.Unlock()
 			return "", ctx.Err()
 		}
+	}
+	if t.sinceSlow++; t.sinceSlow >= recoverAfter && t.every > t.base {
+		t.every, t.sinceSlow = max(t.every/2, t.base), 0
 	}
 	t.next = time.Now().Add(t.every)
 	t.mu.Unlock()

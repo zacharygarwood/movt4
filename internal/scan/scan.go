@@ -12,6 +12,10 @@ import (
 	"github.com/zacharygarwood/movt4/internal/letterboxd"
 )
 
+// maxBlockedInARow is how many members in a row Letterboxd may block before
+// the scan stops fetching ratings and finishes with what it has.
+const maxBlockedInARow = 3
+
 // Source is the part of the Letterboxd client a scan needs.
 type Source interface {
 	Favorites(ctx context.Context, username string) ([]letterboxd.Film, error)
@@ -40,15 +44,17 @@ func Run(ctx context.Context, cfg Config, dial Dialer) <-chan Event {
 	s := &scanner{ctx: ctx, cfg: cfg, events: events}
 	go func() {
 		defer close(events)
-		s.emit(Finished{Err: s.run(dial)})
+		err := s.run(dial)
+		s.emit(Finished{Err: err, Unscanned: s.unscanned})
 	}()
 	return events
 }
 
 type scanner struct {
-	ctx    context.Context
-	cfg    Config
-	events chan<- Event
+	ctx       context.Context
+	cfg       Config
+	events    chan<- Event
+	unscanned int
 }
 
 type match struct {
@@ -84,18 +90,23 @@ func (s *scanner) run(dial Dialer) error {
 	}
 
 	s.emit(StageStarted{StageRatings})
-	for _, m := range matches {
+	blockedInARow := 0
+	for i, m := range matches {
 		user, err := s.fetchRatings(src, m)
 		if s.ctx.Err() != nil {
 			return s.ctx.Err()
 		}
-		if errors.Is(err, letterboxd.ErrBlocked) {
-			return err // every later request would be blocked too
-		}
 		if err != nil {
 			s.emit(UserFailed{Username: m.username, Err: err})
+			if errors.Is(err, letterboxd.ErrBlocked) {
+				if blockedInARow++; blockedInARow == maxBlockedInARow {
+					s.unscanned = len(matches) - i - 1
+					return nil
+				}
+			}
 			continue
 		}
+		blockedInARow = 0
 		s.emit(UserScanned{user})
 	}
 	return nil
@@ -118,6 +129,10 @@ func (s *scanner) favorites(src Source) ([]letterboxd.Film, error) {
 // findMatches searches from the strictest tier down. Each search returns
 // everyone sharing at least that many films, so a username not seen in a
 // stricter tier shares exactly that many.
+//
+// If a search fails partway, the matches found so far are kept but the
+// search stops: without the rest of a stricter tier, members in looser tiers
+// could be counted as sharing fewer films than they do.
 func (s *scanner) findMatches(src Source, films []letterboxd.Film) ([]match, error) {
 	slugs := make([]string, len(films))
 	for i, f := range films {
@@ -127,10 +142,12 @@ func (s *scanner) findMatches(src Source, films []letterboxd.Film) ([]match, err
 	var matches []match
 	full := func() bool { return s.cfg.MaxUsers > 0 && len(matches) >= s.cfg.MaxUsers }
 
-	for shared := len(slugs); shared >= s.cfg.MinShared && !full(); shared-- {
+	var searchErr error
+	for shared := len(slugs); shared >= s.cfg.MinShared && !full() && searchErr == nil; shared-- {
 		for page, err := range src.SearchFans(s.ctx, slugs, shared) {
 			if err != nil {
-				return nil, fmt.Errorf("searching members: %w", err)
+				searchErr = err
+				break
 			}
 			var found []string
 			for _, username := range page {
@@ -146,7 +163,13 @@ func (s *scanner) findMatches(src Source, films []letterboxd.Film) ([]match, err
 			}
 		}
 	}
+	if s.ctx.Err() != nil {
+		return nil, s.ctx.Err()
+	}
 	if len(matches) == 0 {
+		if searchErr != nil {
+			return nil, fmt.Errorf("searching members: %w", searchErr)
+		}
 		return nil, errors.New("no members share enough of these favorites")
 	}
 	return matches, nil
