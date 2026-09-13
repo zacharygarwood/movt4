@@ -1,0 +1,43 @@
+{
+  "generatedAt": "2026-09-13T12:00:00Z",
+  "username": "zach",
+  "favorites": [
+    {
+      "slug": "parasite-2019",
+      "title": "Parasite (2019)"
+    },
+    {
+      "slug": "whiplash-2014",
+      "title": "Whiplash (2014)"
+    }
+  ],
+  "users": [
+    {
+      "username": "ana",
+      "shared": 2,
+      "ratings": {
+        "4.5": [],
+        "5": [
+          "parasite-2019",
+          "whiplash-2014"
+        ]
+      }
+    },
+    {
+      "username": "ben",
+      "shared": 2,
+      "ratings": {
+        "4.5": [
+          "parasite-2019"
+        ],
+        "5": [
+          "whiplash-2014"
+        ]
+      }
+    }
+  ],
+  "films": {
+    "parasite-2019": "Parasite (2019)",
+    "whiplash-2014": "Whiplash (2014)"
+  }
+}
