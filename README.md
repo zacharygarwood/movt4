@@ -1,6 +1,6 @@
 <h1 align="center"><img src="docs/logo.png" alt="movt4" width="405"></h1>
 
-Find Letterboxd members who share your Top 4 favorite films and what else they liked. movt4 searches for people whose favorites overlap yours by 2, 3 or
+Find Letterboxd members who share your Top 4 favorite films and what they liked. movt4 searches for people whose favorites overlap yours by 2, 3 or
 all 4 films, reads their ratings, and charts the films they rated most.
 
 ![movt4 charting the films rated five stars by people who share a Top 4](docs/demo.gif)
